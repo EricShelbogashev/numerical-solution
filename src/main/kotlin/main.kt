@@ -31,57 +31,115 @@ data class Grid(val a: Double, val b: Double, val n: Int) : Iterable<Pair<Int, D
         }
     }
 
+    operator fun get(j: Int): Double = a + (j * h)
+
     val size: Int = n
 }
 
-interface Iteration {
-    /**
-     * Произвести итерацию.
-     *
-     * @param j
-     *       Шаг, к которому применяется итерация.
-     * @param h
-     *       Длина шага сетки.
-     * @param x
-     *       Точка, в которой производится итерация.
-     * @param y
-     *       Предыдущие итерации, от которых зависит текущая, в порядке возрастания индексов.
-     *
-     * @return y_{j+1}
-     */
-    fun make(j: Int, h: Double, x: Double, vararg y: Double): Double
-}
+abstract class AbstractSchema {
 
-abstract class AbstractIteration : Iteration {
-    override fun make(j: Int, h: Double, x: Double, vararg y: Double): Double {
-        if (j <= 0) {
-            throw IllegalArgumentException("итерация должна производиться в первой и более точках")
+    /**
+     * Вычислить значение в точке x.
+     * @param j
+     *       Номер текущей точки на сетке.
+     *       То есть для нахождения y_{j} = y_{j - 1} + g_{j - 1} * h необходимо передать j.
+     * @param grid
+     *       Сетка, на которой происходит вычисление функции.
+     * @param conditions
+     *       Начальные условия для схемы аппроксимации. Допустим, y_0 для схемы "разность вперед" 1 порядка.
+     *
+     * @return Отображение x_{j} -> y_{j}.
+     */
+    fun compute(j: Int, grid: Grid, conditions: Map<Double, Double>): Double {
+        if (j < conditions.size) {
+            throw IllegalArgumentException("итерация не должна производиться в точках условий")
         }
 
-        return makeImpl(j, h, x, y)
+        return computeImpl(j, grid, conditions)
     }
 
-    abstract fun makeImpl(j: Int, h: Double, x: Double, y: DoubleArray): Double
+    /**
+     * При реализации необходимо добавить условия, которые обязаны быть для реализации вычисления.
+     */
+    abstract fun computeImpl(j: Int, grid: Grid, conditions: Map<Double, Double>): Double
+
+    /**
+     * @param grid
+     *       Сетка, на которой производится вычисление.
+     * @param conditions
+     *       Предопределенные, начальные члены рекурентного соотношения. Должны быть совместимы с сеткой.
+     */
+    fun iterator(grid: Grid, conditions: Map<Double, Double>) =
+        object : Iterator<Double> {
+            private val steps = HashMap<Double, Double>(conditions)
+            private val gridIterator = grid.iterator()
+
+            init {
+                var i = steps.size - 1
+                while (i > 0 && gridIterator.hasNext()) {
+                    gridIterator.next()
+                    i--
+                }
+            }
+
+            override fun hasNext(): Boolean = gridIterator.hasNext()
+
+            override fun next(): Double {
+                val (j, _) = gridIterator.next()
+                val value = compute(j, grid, steps)
+                val key = grid[j]
+                steps[key] = value
+                return value
+            }
+
+        }
 }
 
-class FirstSchemaIteration : AbstractIteration() {
+class FirstSchema : AbstractSchema() {
 
     private fun g(x: Double): Double = exp(x) * cos(x)
 
-    override fun makeImpl(j: Int, h: Double, x: Double, y: DoubleArray): Double {
-        if (y.size != 1) {
-            throw IllegalArgumentException("новая итерация зависит от прошлой и должна владеть y_{j-1}")
+    /**
+     * Необходимо условие (x_0, y_0). Ожидается, что j >= 1.
+     */
+    override fun computeImpl(j: Int, grid: Grid, conditions: Map<Double, Double>): Double {
+        if (conditions.isEmpty() || !conditions.contains(grid[j - 1])) {
+            throw IllegalArgumentException("новая итерация y_{j} зависит от прошлой и должна владеть y_{j-1}")
         }
 
-        val y_prev = y[0]
-        return g(x) * h + y_prev
+        val `x_{j-1}`: Double = grid[j - 1]
+        val `y_{j-1}`: Double = conditions[grid[j - 1]]!!
+        return g(`x_{j-1}`) * grid.h + `y_{j-1}`
     }
 
 }
 
-class ExactSolutionIteration : AbstractIteration() {
-    override fun makeImpl(j: Int, h: Double, x: Double, y: DoubleArray): Double {
-        return 0.5 * exp(x) * (sin(x) + cos(x))
+//class SecondSchemaSchema : AbstractSchema() {
+//
+//    private fun g(x: Double): Double = exp(x) * cos(x)
+//
+//    override fun computeImpl(j: Int, grid: Grid, conditions: Map<Double, Double>): Double {
+//        if (conditions.size <= 2 || !conditions.contains(grid[j - 2])) {
+//            throw IllegalArgumentException("новая итерация y_{j} зависит от прошлой и должна владеть y_{j-2}")
+//        }
+//
+//
+//    }
+//
+//}
+
+// y(x) = 1/2 (-e^a sin(a) - e^a cos(a) + 2 b + e^x sin(x) + e^x cos(x))
+class ExactSolutionSchema : AbstractSchema() {
+
+    override fun computeImpl(j: Int, grid: Grid, conditions: Map<Double, Double>): Double {
+        if (conditions.isEmpty() || !conditions.containsKey(grid.a)) {
+            throw IllegalArgumentException("новая итерация y_{j} зависит от начальных данных и должна владеть y_{0}")
+        }
+
+        val x0 = grid.a
+        val y0 = conditions[x0]!!
+        val x = grid[j - 1]
+        return 0.5 * ((-exp(x0) * sin(x0)) + (-exp(x0) * cos(x0)) + (2 * y0) + (exp(x) * sin(x)) + (exp(x) * cos(x)))
     }
 }
 
@@ -99,47 +157,21 @@ object Suggester {
 }
 
 fun main() {
-    // Условие задачи Коши первого рода.
-    val x_0 = 0.0
-    val y_0 = 0.0
+    val (a, b, h) = listOf(0.0, 4.0, 0.01)
 
-    // Параметры итерирования
-    val a = x_0
-    val b = 15.0
-    val h = 1.0
     val n = Suggester.suggest(a, b, h)
-
-    //
-    val iteration = FirstSchemaIteration()
-    val exactIteration = ExactSolutionIteration()
     val grid = Grid(a, b, n)
-    val steps: MutableList<Double> = mutableListOf(y_0)
-    val exactSteps: MutableList<Double> = mutableListOf(y_0)
 
-    // Вычисление
-    for ((j, x) in grid) {
-        if (j == 0) continue
+    val solutionSchema = ExactSolutionSchema()
+    val firstSchema = FirstSchema()
 
-        steps.add(
-            iteration.make(j, grid.h, x, steps[j - 1])
-        )
-        exactSteps.add(
-            exactIteration.make(j, grid.h, x, steps[j - 1])
-        )
+    val conditionsI = mapOf(0.0 to 0.0)
+    val solutionSchemaIterator = solutionSchema.iterator(grid, conditionsI)
+    val firstSchemaIterator = firstSchema.iterator(grid, conditionsI)
+
+    while (solutionSchemaIterator.hasNext() && firstSchemaIterator.hasNext()) {
+        val solution_y_j = solutionSchemaIterator.next()
+        val firstSchema_y_j = firstSchemaIterator.next()
+        println("$solution_y_j \t $firstSchema_y_j")
     }
-
-    // Вывод на экран
-    val sb = StringBuilder()
-    val maxLength = steps.maxOf { t -> t.toString().length }
-
-    for (i in 0..grid.size) {
-        val leftColumn = steps[i]
-        val rightColumn = exactSteps[i]
-
-        val padding = " ".repeat(maxLength - leftColumn.toString().length)
-
-        sb.append("$leftColumn$padding : $rightColumn\n")
-    }
-
-    println(sb)
 }
