@@ -1,4 +1,4 @@
-@file:Suppress("LocalVariableName", "PropertyName", "UNCHECKED_CAST")
+@file:Suppress("LocalVariableName", "PropertyName")
 
 import java.util.*
 import java.util.stream.Collectors
@@ -314,7 +314,7 @@ fun main() {
         mutableMap.toMap()
     }
 
-    val evaluator = GridSchemeEvaluator(
+    val firstSchemaEvaluation = GridSchemeEvaluator(
         a,
         b,
         h,
@@ -323,5 +323,16 @@ fun main() {
         conditionsI
     )
 
-    evaluator.get().forEach(System.out::println)
+    firstSchemaEvaluation.get().forEach(System.out::println)
+
+    val secondSchemaEvaluation = GridSchemeEvaluator(
+        a,
+        b,
+        h,
+        Problem(secondSchema, conditionsII),
+        Problem(solutionSchema, conditionsI),
+        conditionsExactII
+    )
+
+    secondSchemaEvaluation.get().forEach(System.out::println)
 }
