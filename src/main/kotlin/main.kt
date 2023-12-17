@@ -1,5 +1,10 @@
-@file:Suppress("FunctionName", "LocalVariableName", "SpellCheckingInspection")
+@file:Suppress("LocalVariableName", "PropertyName", "UNCHECKED_CAST")
 
+import java.util.*
+import java.util.stream.Collectors
+import java.util.stream.IntStream
+import java.util.stream.Stream
+import java.util.stream.StreamSupport
 import kotlin.math.*
 
 
@@ -48,11 +53,11 @@ abstract class AbstractSchema {
      * @param grid
      *       Сетка, на которой происходит вычисление функции.
      * @param conditions
-     *       Начальные условия для схемы аппроксимации. Допустим, y_0 для схемы "разность вперед" 1 порядка.
+     *       Начальные условия для схемы аппроксимации. Допустим, (0, y_0) для схемы "разность вперед" 1 порядка.
      *
      * @return Отображение x_{j} -> y_{j}.
      */
-    fun compute(j: Int, grid: Grid, conditions: Map<Double, Double>): Double {
+    fun compute(j: Int, grid: Grid, conditions: Conditions): Double {
         if (j <= conditions.size - 1) {
             throw IllegalArgumentException("итерация не должна производиться в точках условий")
         } else if (j >= grid.size) {
@@ -65,7 +70,7 @@ abstract class AbstractSchema {
     /**
      * При реализации необходимо добавить условия, которые обязаны быть для реализации вычисления.
      */
-    protected abstract fun computeImpl(j: Int, grid: Grid, conditions: Map<Double, Double>): Double
+    protected abstract fun computeImpl(j: Int, grid: Grid, conditions: Conditions): Double
 
     /**
      * @param grid
@@ -73,9 +78,9 @@ abstract class AbstractSchema {
      * @param conditions
      *       Предопределенные, начальные члены рекурентного соотношения. Должны быть совместимы с сеткой.
      */
-    fun iterator(grid: Grid, conditions: Map<Double, Double>) =
-        object : Iterator<Double> {
-            private val steps = HashMap<Double, Double>(conditions)
+    private fun iterator(grid: Grid, conditions: Conditions) =
+        object : Iterator<Pair<Int, Double>> {
+            private val steps = HashMap(conditions)
             private val gridIterator = grid.iterator()
 
             init {
@@ -88,18 +93,24 @@ abstract class AbstractSchema {
 
             override fun hasNext(): Boolean = gridIterator.hasNext()
 
-            override fun next(): Double {
+            override fun next(): Pair<Int, Double> {
                 if (!hasNext()) {
                     throw NoSuchElementException("просчитаны все точки на сетке")
                 }
                 val (j, _) = gridIterator.next()
                 val value = compute(j, grid, steps)
-                val key = grid[j]
-                steps[key] = value
-                return value
+                steps[j] = value
+                return j to value
             }
 
         }
+
+    fun stream(grid: Grid, conditions: Conditions): Stream<Pair<Int, Double>> =
+        StreamSupport.stream(
+            { Spliterators.spliteratorUnknownSize(iterator(grid, conditions), Spliterator.ORDERED) },
+            Spliterator.ORDERED,
+            false
+        )
 }
 
 // y_{j} = g_{j}*h + y_{j-1}
@@ -110,13 +121,13 @@ class FirstSchema : AbstractSchema() {
     /**
      * Необходимо условие (x_0, y_0). Ожидается, что j >= 1.
      */
-    override fun computeImpl(j: Int, grid: Grid, conditions: Map<Double, Double>): Double {
-        if (conditions.isEmpty() || !conditions.contains(grid[j - 1])) {
+    override fun computeImpl(j: Int, grid: Grid, conditions: Conditions): Double {
+        if (conditions.isEmpty() || !conditions.contains(j - 1)) {
             throw IllegalArgumentException("новая итерация y_{j} зависит от прошлой и должна владеть y_{j-1}")
         }
 
         val `x_{j-1}`: Double = grid[j - 1]
-        val `y_{j-1}`: Double = conditions[`x_{j-1}`]!!
+        val `y_{j-1}`: Double = conditions[j - 1]!!
         return g(`x_{j-1}`) * grid.h + `y_{j-1}`
     }
 
@@ -128,16 +139,15 @@ class SecondSchema : AbstractSchema() {
     private fun g(x: Double): Double = exp(x) * cos(x)
 
     /**
-     * Необходимо условие (x_0, y_0), (x_1, y_1). Ожидается, что j >= 2.
+     * Необходимо условие (0, y_0), (1, y_1). Ожидается, что j >= 2.
      */
-    override fun computeImpl(j: Int, grid: Grid, conditions: Map<Double, Double>): Double {
-        if (conditions.size < 2 || !conditions.contains(grid[j - 2])) {
+    override fun computeImpl(j: Int, grid: Grid, conditions: Conditions): Double {
+        if (conditions.size < 2 || !conditions.contains(j - 2)) {
             throw IllegalArgumentException("новая итерация y_{j} зависит от прошлой и должна владеть y_{j-2}")
         }
 
         val `x_{j-1}`: Double = grid[j - 1]
-        val `x_{j-2}`: Double = grid[j - 2]
-        val `y_{j-2}`: Double = conditions[`x_{j-2}`]!!
+        val `y_{j-2}`: Double = conditions[j - 2]!!
         return g(`x_{j-1}`) * grid.h * 2 + `y_{j-2}`
     }
 
@@ -146,13 +156,13 @@ class SecondSchema : AbstractSchema() {
 // y(x) = 1/2 (-e^a sin(a) - e^a cos(a) + 2 b + e^x sin(x) + e^x cos(x))
 class ExactSolutionSchema : AbstractSchema() {
 
-    override fun computeImpl(j: Int, grid: Grid, conditions: Map<Double, Double>): Double {
-        if (conditions.isEmpty() || !conditions.containsKey(grid.a)) {
+    override fun computeImpl(j: Int, grid: Grid, conditions: Conditions): Double {
+        if (conditions.isEmpty() || !conditions.containsKey(0)) {
             throw IllegalArgumentException("новая итерация y_{j} зависит от начальных данных и должна владеть y_{0}")
         }
 
         val x0 = grid.a
-        val y0 = conditions[x0]!!
+        val y0 = conditions[0]!!
         val x = grid[j]
         return 0.5 * ((-exp(x0) * sin(x0)) + (-exp(x0) * cos(x0)) + (2 * y0) + (exp(x) * sin(x)) + (exp(x) * cos(x)))
     }
@@ -171,37 +181,147 @@ object Suggester {
     }
 }
 
+/**
+ * Вычислитель схем.
+ */
+class GridSchemeEvaluator(
+    a: Double,
+    b: Double,
+    h: Double,
+    private val approx: Problem,
+    private val exact: Problem,
+    private val denseConditions: Conditions
+) : Iterable<GridSchemeEvaluator.EvaluatedRow> {
+
+    private val grid1: Grid
+    private val grid2: Grid
+    private var evaluated: Array<EvaluatedRow>? = null
+
+    init {
+        val n1 = Suggester.suggest(a, b, h)
+        val n2 = n1 * 3 // Берем в 3 раза больше точек.
+        grid1 = Grid(a, b, n1)
+        grid2 = Grid(a, b, n2)
+    }
+
+    data class Problem(val schema: AbstractSchema, val conditions: Conditions)
+
+    data class EvaluatedRow(
+        val j: Int?,
+        val x_j: Double?,
+        val `y_{ex}(x_j)`: Double?,
+        val `(delta)y_{h_1}(x_j)`: Double?,
+        val `(delta)y_{h_2}(x_j)`: Double?,
+        val p_j: Double?
+    )
+
+    private fun compute(): Array<EvaluatedRow> {
+        val run = approx.schema.stream(grid1, approx.conditions).collect(
+            Collectors.toMap(
+                { pair: Pair<Int, Double> -> pair.first },
+                { pair: Pair<Int, Double> -> pair.second }
+            )
+        )
+        val runExact = approx.schema.stream(grid2, denseConditions).collect(  // Тут в 3 раза больше точек.
+            Collectors.toMap(
+                { pair: Pair<Int, Double> -> pair.first },
+                { pair: Pair<Int, Double> -> pair.second }
+            )
+        )
+        val exact = exact.schema.stream(grid1, exact.conditions).collect(
+            Collectors.toMap(
+                { pair: Pair<Int, Double> -> pair.first },
+                { pair: Pair<Int, Double> -> pair.second }
+            )
+        )
+        assert((run.size == exact.size) && (run.size * 3 == exact.size))
+
+        val array: MutableList<EvaluatedRow> = IntStream.range(0, grid1.size)
+            .mapToObj { i ->
+                val d1: Double? = run?.get(i)?.let { exact[i]?.minus(it)?.absoluteValue }
+                val d2: Double? = runExact?.get(i)?.let { exact[i]?.minus(it)?.absoluteValue }
+                return@mapToObj EvaluatedRow(
+                    j = i,
+                    x_j = grid1[i],
+                    `y_{ex}(x_j)` = exact[i],
+                    `(delta)y_{h_1}(x_j)` = d1,
+                    `(delta)y_{h_2}(x_j)` = d2,
+                    p_j = d2?.let { it -> d1?.div(it)?.let { log(it, 3.0) } }
+                )
+            }
+            .filter(Objects::nonNull)
+            .map { it as EvaluatedRow }
+            .limit(grid1.size.toLong())
+            .collect(Collectors.toList())
+
+        return array.toTypedArray()
+    }
+
+    override fun iterator(): Iterator<EvaluatedRow> {
+        if (evaluated == null) {
+            evaluated = compute()
+        }
+
+        return evaluated!!.iterator()
+    }
+
+    fun get(): Stream<EvaluatedRow> =
+        StreamSupport.stream(
+            { Spliterators.spliteratorUnknownSize(iterator(), Spliterator.ORDERED) },
+            Spliterator.ORDERED,
+            false
+        )
+}
+
+typealias Conditions = Map<Int, Double>
+typealias Problem = GridSchemeEvaluator.Problem
+
 fun main() {
     val (a, b, h) = listOf(0.0, 4.0, 0.1)
-
-    val n = Suggester.suggest(a, b, h)
-    val grid = Grid(a, b, n)
 
     val solutionSchema = ExactSolutionSchema()
     val firstSchema = FirstSchema()
     val secondSchema = SecondSchema()
 
+    val y_0 = 0.0
+
     // Для схемы первого порядка
-    val conditionsI = mapOf(0.0 to 0.0)
-    val firstSchemaIterator = firstSchema.iterator(grid, conditionsI)
+    val conditionsI = mapOf(0 to y_0)
 
     // Для схемы второго порядка
-    val j = 1
-    val x1 = grid[1]
-    val y1 = firstSchema.compute(j, grid, conditionsI)
-    val conditionsII = mapOf(0.0 to 0.0, x1 to y1)
-    val secondSchemaIterator = secondSchema.iterator(grid, conditionsII)
-
-    // Искомое решение системы
-    val solutionSchemaIterator = solutionSchema.iterator(grid, conditionsI)
-
-    // Подготовка. Проматываем первую итерацию, так как у второго порядка y_1 задано изначально.
-    solutionSchemaIterator.next()
-    firstSchemaIterator.next()
-    while (solutionSchemaIterator.hasNext() && firstSchemaIterator.hasNext() && secondSchemaIterator.hasNext()) {
-        val solution_y_j = solutionSchemaIterator.next()
-        val firstSchema_y_j = firstSchemaIterator.next()
-        val secondSchema_y_j = secondSchemaIterator.next()
-        println("$solution_y_j \t ${abs(firstSchema_y_j - solution_y_j)} \t ${abs(secondSchema_y_j - solution_y_j)}")
+    val conditionsII = conditionsI.let {
+        // Вычисляем y1 для неплотной сетки h.
+        val j = 1
+        val n = Suggester.suggest(a, b, h)
+        val grid = Grid(a, b, n)
+        val y1: Double = firstSchema.compute(j, grid, conditionsI) // просчитаем условие (1, y1)
+        val mutableMap = it.toMutableMap()
+        mutableMap[1] = y1
+        // Создаем conditionsII на основе conditionsI.
+        mutableMap.toMap()
     }
+
+    // Для плотной сетки
+    val conditionsExactII = conditionsI.let {
+        // Вычисляем y1 для плотной сетки h.
+        val j = 1
+        val n = Suggester.suggest(a, b, h) * 3
+        val grid = Grid(a, b, n)
+        val y1: Double = firstSchema.compute(j, grid, conditionsI) // просчитаем условие (1, y1)
+        val mutableMap = it.toMutableMap()
+        mutableMap[1] = y1
+        // Создаем conditionsExactII на основе conditionsI.
+        mutableMap.toMap()
+    }
+
+    val evaluator = GridSchemeEvaluator(
+        a,
+        b,
+        h,
+        Problem(firstSchema, conditionsI),
+        Problem(solutionSchema, conditionsI),
+        conditionsI
+    )
+
+    evaluator.get().forEach(System.out::println)
 }
