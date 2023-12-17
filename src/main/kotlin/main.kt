@@ -195,7 +195,7 @@ fun main() {
     // Искомое решение системы
     val solutionSchemaIterator = solutionSchema.iterator(grid, conditionsI)
 
-    // Подготовка
+    // Подготовка. Проматываем первую итерацию, так как у второго порядка y_1 задано изначально.
     solutionSchemaIterator.next()
     firstSchemaIterator.next()
     while (solutionSchemaIterator.hasNext() && firstSchemaIterator.hasNext() && secondSchemaIterator.hasNext()) {
