@@ -221,7 +221,7 @@ class GridSchemeEvaluator(
                     "\n  y_{ex}(x_j) = $`y_{ex}(x_j)`," +
                     "\n  Δy_{h_1}(x_j) = $`(delta)y_{h_1}(x_j)`," +
                     "\n  Δy_{h_2}(x_j) = $`(delta)y_{h_2}(x_j)`," +
-                    "\n   p_j=$p_j" +
+                    "\n  p_j = $p_j" +
                     "\n)"
         }
     }
