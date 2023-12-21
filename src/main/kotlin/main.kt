@@ -14,7 +14,7 @@ data class Grid(val a: Double, val b: Double, val n: Int) : Iterable<Pair<Int, D
     init {
         if (b <= a) throw IllegalArgumentException("правая граница сетки не должна быть меньше левой границы")
         if (n < 2) throw IllegalArgumentException("количество точек сетки не должно меньше двух")
-        h = (b - a) / (n - 1)
+        h = (b - a) / (n)
     }
 
     override fun iterator(): Iterator<Pair<Int, Double>> {
@@ -213,7 +213,18 @@ class GridSchemeEvaluator(
         val `(delta)y_{h_1}(x_j)`: Double?,
         val `(delta)y_{h_2}(x_j)`: Double?,
         val p_j: Double?
-    )
+    ) {
+        override fun toString(): String {
+            return "EvaluatedRow(" +
+                    "\n  j = $j, " +
+                    "\n  x_j = $x_j, " +
+                    "\n  y_{ex}(x_j) = $`y_{ex}(x_j)`," +
+                    "\n  Δy_{h_1}(x_j) = $`(delta)y_{h_1}(x_j)`," +
+                    "\n  Δy_{h_2}(x_j) = $`(delta)y_{h_2}(x_j)`," +
+                    "\n   p_j=$p_j" +
+                    "\n)"
+        }
+    }
 
     private fun compute(): Array<EvaluatedRow> {
         val run = approx.schema.stream(grid1, approx.conditions).collect(
